@@ -1,4 +1,4 @@
-def lu_decomposition_with_pivoting(a, eps=1e-12):
+def lu_decomposition_with_pivoting(a):
     n = len(a)
     u = [row[:] for row in a]
     l = [[0.0] * n for _ in range(n)]
@@ -16,9 +16,6 @@ def lu_decomposition_with_pivoting(a, eps=1e-12):
             if cur > pivot_abs:
                 pivot_abs = cur
                 pivot_row = i
-
-        if pivot_abs < eps:
-            raise ValueError("Matrix is singular or near-singular.")
 
         if pivot_row != k:
             u[k], u[pivot_row] = u[pivot_row], u[k]
@@ -41,28 +38,24 @@ def permute_vector(v, p):
     return [v[p[i]] for i in range(len(v))]
 
 
-def forward_substitution(l, b, eps=1e-12):
+def forward_substitution(l, b):
     n = len(l)
     z = [0.0] * n
     for i in range(n):
         s = b[i]
         for j in range(i):
             s -= l[i][j] * z[j]
-        if abs(l[i][i]) < eps:
-            raise ValueError("Zero pivot in forward substitution.")
         z[i] = s / l[i][i]
     return z
 
 
-def backward_substitution(u, z, eps=1e-12):
+def backward_substitution(u, z):
     n = len(u)
     x = [0.0] * n
     for i in range(n - 1, -1, -1):
         s = z[i]
         for j in range(i + 1, n):
             s -= u[i][j] * x[j]
-        if abs(u[i][i]) < eps:
-            raise ValueError("Zero pivot in backward substitution.")
         x[i] = s / u[i][i]
     return x
 
