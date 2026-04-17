@@ -1,24 +1,35 @@
-﻿def thomas_algorithm(a, b, c, d):
+﻿
+def thomas_algorithm(a, b, c, d):
     n = len(b)
 
     p = [0.0] * n
     q = [0.0] * n
+    min_abs_denom = float("inf")
+    zero_denom = False
 
+    # Прямой ход прогонки: считаем коэффициенты P и Q
     denom = b[0]
+    if abs(denom) < 1e-12:
+        zero_denom = True
+    min_abs_denom = min(min_abs_denom, abs(denom))
     p[0] = -c[0] / denom if n > 1 else 0.0
     q[0] = d[0] / denom
 
     for i in range(1, n):
         denom = b[i] + a[i] * p[i - 1]
+        if abs(denom) < 1e-12:
+            zero_denom = True
+        min_abs_denom = min(min_abs_denom, abs(denom))
         p[i] = -c[i] / denom if i < n - 1 else 0.0
         q[i] = (d[i] - a[i] * q[i - 1]) / denom
 
+    # Обратный ход прогонки: восстанавливаем x
     x = [0.0] * n
     x[n - 1] = q[n - 1]
     for i in range(n - 2, -1, -1):
         x[i] = p[i] * x[i + 1] + q[i]
 
-    return x, p, q
+    return x, p, q, min_abs_denom, zero_denom
 
 
 def tridiagonal_mat_vec(a, b, c, x):
@@ -32,6 +43,26 @@ def tridiagonal_mat_vec(a, b, c, x):
             s += c[i] * x[i + 1]
         res[i] = s
     return res
+
+
+def residual_norm_inf(a, b, c, x, d):
+    ax = tridiagonal_mat_vec(a, b, c, x)
+    mx = 0.0
+    for i in range(len(d)):
+        diff = abs(ax[i] - d[i])
+        if diff > mx:
+            mx = diff
+    return mx
+
+
+def is_tridiagonal_diagonally_dominant(a, b, c):
+    n = len(b)
+    for i in range(n):
+        left = abs(a[i]) if i > 0 else 0.0
+        right = abs(c[i]) if i < n - 1 else 0.0
+        if abs(b[i]) < left + right:
+            return False
+    return True
 
 
 def print_vector(name, v, digits=6):
@@ -56,8 +87,10 @@ def main():
     c = [9.0, 6.0, 8.0, -2.0, 0.0]
     d = [125.0, -56.0, 144.0, 36.0, 70.0]
 
-    x, p, q = thomas_algorithm(a, b, c, d)
+    x, p, q, min_abs_denom, zero_denom = thomas_algorithm(a, b, c, d)
     ax = tridiagonal_mat_vec(a, b, c, x)
+    residual = residual_norm_inf(a, b, c, x, d)
+    diag_dom = is_tridiagonal_diagonally_dominant(a, b, c)
 
     print_vector("P coefficients:", p)
     print_vector("Q coefficients:", q)
@@ -66,6 +99,14 @@ def main():
     print()
     print_vector("Check A*x:", ax)
     print_vector("Right part d:", d)
+    print(f"Residual ||Ax-d||_inf = {residual:.6e}")
+    print()
+    # Диагональное преобладание — достаточное условие устойчивости прогонки
+    print(f"Diagonal dominance check: {diag_dom}")
+    # Минимальный знаменатель в прямом ходе — индикатор риска деления на почти ноль
+    print(f"Min |denominator| in sweep = {min_abs_denom:.6e}")
+    if zero_denom:
+        print("Warning: zero or near-zero denominator in sweep -> possible instability.")
 
 
 if __name__ == "__main__":

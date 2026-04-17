@@ -3,6 +3,7 @@ def to_jacobi_form(a, b):
     alpha = [[0.0] * n for _ in range(n)]
     beta = [0.0] * n
 
+    # Преобразование Ax=b к виду x = beta + alpha*x
     for i in range(n):
         diag = a[i][i]
         beta[i] = b[i] / diag
@@ -33,39 +34,39 @@ def matrix_norm_inf(m):
     return mx
 
 
-def simple_iteration(alpha, beta, eps, max_iter=100000):
-    n = len(beta)
-    q = matrix_norm_inf(alpha)
+def simple_iteration(a, b, eps, q, max_iter=100000):
+    n = len(b)
     factor = q / (1.0 - q) if q < 1.0 else 1.0
 
-    x_old = beta[:]
+    x_old = [b[i] / a[i][i] for i in range(n)]
     k = 0
 
     while k < max_iter:
         k += 1
         x_new = [0.0] * n
         for i in range(n):
-            s = beta[i]
+            # Покоординатное вычисление для Якоби
+            s = b[i]
             for j in range(n):
-                s += alpha[i][j] * x_old[j]
-            x_new[i] = s
+                if j != i:
+                    s -= a[i][j] * x_old[j]
+            x_new[i] = s / a[i][i]
 
         diff = vector_diff_norm_inf(x_new, x_old)
         est = factor * diff if q < 1.0 else diff
         if est <= eps:
-            return x_new, k, est
+            return x_new, k, est, True
 
         x_old = x_new
 
-    return x_old, k, est
+    return x_old, k, est, False
 
 
-def seidel_iteration(alpha, beta, eps, max_iter=100000):
-    n = len(beta)
-    q = matrix_norm_inf(alpha)
+def seidel_iteration(a, b, eps, q, max_iter=100000):
+    n = len(b)
     factor = q / (1.0 - q) if q < 1.0 else 1.0
 
-    x_old = beta[:]
+    x_old = [b[i] / a[i][i] for i in range(n)]
     k = 0
 
     while k < max_iter:
@@ -73,22 +74,24 @@ def seidel_iteration(alpha, beta, eps, max_iter=100000):
         x_new = x_old[:]
 
         for i in range(n):
-            s = beta[i]
+            # Покоординатное вычисление для Зейделя
+            s = b[i]
             for j in range(n):
                 if j < i:
-                    s += alpha[i][j] * x_new[j]
+                    # Здесь отличие от Якоби: используем уже обновленные координаты x_new
+                    s -= a[i][j] * x_new[j]
                 elif j > i:
-                    s += alpha[i][j] * x_old[j]
-            x_new[i] = s
+                    s -= a[i][j] * x_old[j]
+            x_new[i] = s / a[i][i]
 
         diff = vector_diff_norm_inf(x_new, x_old)
         est = factor * diff if q < 1.0 else diff
         if est <= eps:
-            return x_new, k, est
+            return x_new, k, est, True
 
         x_old = x_new
 
-    return x_old, k, est
+    return x_old, k, est, False
 
 
 def mat_vec_mul(a, x):
@@ -108,6 +111,39 @@ def residual_norm_inf(a, x, b):
     mx = 0.0
     for i in range(len(b)):
         d = abs(ax[i] - b[i])
+        if d > mx:
+            mx = d
+    return mx
+
+
+def is_diagonally_dominant(a):
+    n = len(a)
+    for i in range(n):
+        s = 0.0
+        for j in range(n):
+            if j != i:
+                s += abs(a[i][j])
+        if abs(a[i][i]) < s:
+            return False
+    return True
+
+
+def max_diag_abs(m):
+    mx = 0.0
+    for i in range(len(m)):
+        if abs(m[i][i]) > mx:
+            mx = abs(m[i][i])
+    return mx
+
+
+def fixed_point_residual_norm_inf(alpha, beta, x):
+    mx = 0.0
+    n = len(beta)
+    for i in range(n):
+        s = beta[i]
+        for j in range(n):
+            s += alpha[i][j] * x[j]
+        d = abs(x[i] - s)
         if d > mx:
             mx = d
     return mx
@@ -135,23 +171,38 @@ def main():
     alpha, beta = to_jacobi_form(a, b)
     q = matrix_norm_inf(alpha)
 
-    x_jacobi, k_jacobi, est_jacobi = simple_iteration(alpha, beta, eps)
-    x_seidel, k_seidel, est_seidel = seidel_iteration(alpha, beta, eps)
+    x_jacobi, k_jacobi, est_jacobi, ok_jacobi = simple_iteration(a, b, eps, q)
+    x_seidel, k_seidel, est_seidel, ok_seidel = seidel_iteration(a, b, eps, q)
+    fp_jacobi = fixed_point_residual_norm_inf(alpha, beta, x_jacobi)
+    fp_seidel = fixed_point_residual_norm_inf(alpha, beta, x_seidel)
+    diag_dom = is_diagonally_dominant(a)
+    alpha_diag = max_diag_abs(alpha)
 
     print(f"eps = {eps}")
     print(f"q = ||alpha||_inf = {q:.6f}")
+    # Диагональное преобладание и q<1 — достаточные условия сходимости
+    print(f"Diagonal dominance of A: {diag_dom}")
+    print(f"Max |diag(alpha)| (should be 0): {alpha_diag:.6e}")
+    if q >= 1.0:
+        print("Warning: q >= 1 -> convergence not guaranteed.")
     print()
 
     print_vector("Jacobi (simple iteration) solution:", x_jacobi)
     print(f"Jacobi iterations: {k_jacobi}")
     print(f"Jacobi final estimate: {est_jacobi:.6e}")
     print(f"Jacobi residual ||Ax-b||_inf: {residual_norm_inf(a, x_jacobi, b):.6e}")
+    print(f"Jacobi fixed-point residual ||x-(beta+alpha*x)||_inf: {fp_jacobi:.6e}")
+    if not ok_jacobi:
+        print("Warning: Jacobi did not reach eps within max_iter.")
     print()
 
     print_vector("Seidel solution:", x_seidel)
     print(f"Seidel iterations: {k_seidel}")
     print(f"Seidel final estimate: {est_seidel:.6e}")
     print(f"Seidel residual ||Ax-b||_inf: {residual_norm_inf(a, x_seidel, b):.6e}")
+    print(f"Seidel fixed-point residual ||x-(beta+alpha*x)||_inf: {fp_seidel:.6e}")
+    if not ok_seidel:
+        print("Warning: Seidel did not reach eps within max_iter.")
     print()
 
     if k_seidel < k_jacobi:
@@ -166,8 +217,7 @@ if __name__ == "__main__":
     main()
 
 #
-# 1) Сначала приводим Ax=b к виду x = beta + alpha*x.
-#    Это обычный шаг Якоби:
+# 1) Для сходимости и оценки используем разложение Якоби:
 #    beta[i] = b[i]/a[i][i], alpha[i][j] = -a[i][j]/a[i][i], i != j.
 #    На диагонали alpha[i][i] = 0.
 #
@@ -176,14 +226,13 @@ if __name__ == "__main__":
 #    И можно использовать оценку:
 #    eps_k = q/(1-q) * ||x(k)-x(k-1)||_inf.
 #
-# 3) Метод простых итераций (Якоби):
-#    x_new берется ТОЛЬКО из x_old:
-#    x_new[i] = beta[i] + sum(alpha[i][j] * x_old[j]).
+# 3) Метод простых итераций (Якоби) — покоординатно:
+#    x_new[i] = (b[i] - sum_{j!=i}(a[i][j]*x_old[j])) / a[i][i].
 #    То есть вся новая итерация строится на старых значениях.
 #
-# 4) Метод Зейделя:
-#    Когда считаем x_new[i], уже используем свежие x_new[0..i-1].
-#    Остальные (i+1..n-1) пока берем из x_old.
+# 4) Метод Зейделя — тоже покоординатно:
+#    x_new[i] = (b[i] - sum_{j<i}(a[i][j]*x_new[j]) - sum_{j>i}(a[i][j]*x_old[j])) / a[i][i].
+#    Здесь часть координат берется уже обновленной.
 #    Поэтому он обычно быстрее (и в этой задаче тоже).
 #
 # 5) Что взяли как старт:

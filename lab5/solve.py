@@ -22,6 +22,62 @@ def mat_mul(a, b):
     return c
 
 
+def transpose(a):
+    n = len(a)
+    m = len(a[0])
+    t = [[0.0] * n for _ in range(m)]
+    for i in range(n):
+        for j in range(m):
+            t[j][i] = a[i][j]
+    return t
+
+
+def matrix_diff_norm_fro(a, b):
+    s = 0.0
+    for i in range(len(a)):
+        for j in range(len(a[0])):
+            d = a[i][j] - b[i][j]
+            s += d * d
+    return math.sqrt(s)
+
+
+def determinant(a):
+    n = len(a)
+    m = [row[:] for row in a]
+    det = 1.0
+    sign = 1.0
+    for k in range(n):
+        pivot = k
+        pivot_abs = abs(m[k][k])
+        for i in range(k + 1, n):
+            cur = abs(m[i][k])
+            if cur > pivot_abs:
+                pivot_abs = cur
+                pivot = i
+        if pivot_abs == 0.0:
+            return 0.0
+        if pivot != k:
+            m[k], m[pivot] = m[pivot], m[k]
+            sign *= -1.0
+        pivot_val = m[k][k]
+        det *= pivot_val
+        for i in range(k + 1, n):
+            factor = m[i][k] / pivot_val
+            for j in range(k + 1, n):
+                m[i][j] -= factor * m[k][j]
+            m[i][k] = 0.0
+    return det * sign
+
+
+def lower_tri_norm(a):
+    n = len(a)
+    s = 0.0
+    for i in range(n):
+        for j in range(i):
+            s += a[i][j] * a[i][j]
+    return math.sqrt(s)
+
+
 def vector_norm(v):
     s = 0.0
     for x in v:
@@ -35,6 +91,7 @@ def qr_decomposition_householder(a):
     q = identity_matrix(n)
 
     for k in range(n - 1):
+        # 1) строим вектор отражения Хаусхолдера для зануления поддиагонали
         x = [r[i][k] for i in range(k, n)]
         nx = vector_norm(x)
         if nx == 0.0:
@@ -54,6 +111,7 @@ def qr_decomposition_householder(a):
             for j in range(k, n):
                 h[i][j] -= 2.0 * v[i - k] * v[j - k]
 
+        # 2) применяем отражение: R <- H*R, Q <- Q*H
         r = mat_mul(h, r)
         q = mat_mul(q, h)
 
@@ -87,6 +145,7 @@ def qr_algorithm_eigenvalues(a, eps, max_iter=10000):
     k = 0
 
     while k < max_iter and history[-1] > eps:
+        # QR-итерация: A_k = Q_k R_k, A_{k+1} = R_k Q_k
         q, r = qr_decomposition_householder(ak)
         ak = mat_mul(r, q)
         history.append(strict_lower_subdiag_norm(ak))
@@ -96,9 +155,11 @@ def qr_algorithm_eigenvalues(a, eps, max_iter=10000):
     i = 0
     while i < n:
         if i == n - 1 or abs(ak[i + 1][i]) < eps:
+            # 1x1 блок -> вещественное собственное значение
             eigs.append(complex(ak[i][i], 0.0))
             i += 1
         else:
+            # 2x2 блок -> пара (возможна комплексная)
             a11 = ak[i][i]
             a12 = ak[i][i + 1]
             a21 = ak[i + 1][i]
@@ -142,8 +203,23 @@ def main():
 
     q0, r0 = qr_decomposition_householder(a)
     qr_err = qr_decomposition_error(q0, r0, a)
+    qtq = mat_mul(transpose(q0), q0)
+    # Ортогональность Q — базовая проверка корректности QR-разложения
+    qtq_err = matrix_diff_norm_fro(qtq, identity_matrix(len(a)))
+    r_lower_err = lower_tri_norm(r0)
 
     eigs, a_final, iters, history = qr_algorithm_eigenvalues(a, eps)
+    trace_a = 0.0
+    for i in range(len(a)):
+        trace_a += a[i][i]
+    det_a = determinant(a)
+    # Инварианты следа и детерминанта должны совпадать с суммой/произведением собственных значений
+    sum_eigs = sum(eigs)
+    prod_eigs = 1.0 + 0.0j
+    for e in eigs:
+        prod_eigs *= e
+    trace_err = abs(sum_eigs - trace_a)
+    det_err = abs(prod_eigs - det_a)
 
     print(f"eps = {eps}")
     print()
@@ -153,6 +229,9 @@ def main():
     print_matrix("R from first QR decomposition:", r0)
     print()
     print(f"Check ||A - Q*R||_F = {qr_err:.6e}")
+    print(f"Check ||Q^T*Q - I||_F = {qtq_err:.6e}")
+    # R должна быть верхнетреугольной — ниже диагонали почти нули
+    print(f"Check ||lower(R)||_F = {r_lower_err:.6e}")
     print()
 
     print(f"QR algorithm iterations = {iters}")
@@ -162,11 +241,14 @@ def main():
     print("Eigenvalues:")
     for i, e in enumerate(eigs, start=1):
         print(f"lambda_{i} = {format_complex(e)}")
+    print(f"Check |sum(lambda_i) - tr(A)| = {trace_err:.6e}")
+    print(f"Check |prod(lambda_i) - det(A)| = {det_err:.6e}")
     print()
 
     print("Convergence history e^(k) = ||elements below first subdiagonal||:")
     for i, val in enumerate(history):
         print(f"k={i:3d}: e={val:.6e}")
+    print(f"Final e^(k) = {history[-1]:.6e}")
 
 
 if __name__ == "__main__":
