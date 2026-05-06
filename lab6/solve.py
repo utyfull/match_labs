@@ -4,8 +4,16 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 
 
+def left_part(x):
+    return math.log(x + 1.0) + 0.5
+
+
+def right_part(x):
+    return 2.0 * x
+
+
 def f(x):
-    return math.log(x + 1.0) - 2.0 * x + 0.5
+    return left_part(x) - right_part(x)
 
 
 def df(x):
@@ -22,6 +30,32 @@ def phi(x):
 
 def dphi(x):
     return 1.0 / (2.0 * (x + 1.0))
+
+
+def find_intersection(a, b, tol=1e-12, max_iter=1000):
+    left = a
+    right = b
+    f_left = f(left)
+    f_right = f(right)
+
+    if f_left * f_right > 0.0:
+        raise ValueError("Intersection is not bracketed on the given interval.")
+
+    for _ in range(max_iter):
+        mid = (left + right) / 2.0
+        f_mid = f(mid)
+
+        if abs(f_mid) <= tol or (right - left) / 2.0 <= tol:
+            return mid
+
+        if f_left * f_mid <= 0.0:
+            right = mid
+            f_right = f_mid
+        else:
+            left = mid
+            f_left = f_mid
+
+    return (left + right) / 2.0
 
 
 def simple_iteration_method(x0, q, eps, max_iter=100000):
@@ -77,37 +111,39 @@ def print_rows(title, rows):
     print()
 
 
-def plot_initial_region(a, b, x0_iter, x0_newton, x_iter, x_newton):
+def plot_initial_region(a, b, start_x):
     left = max(-0.99, a - 0.3)
     right = b + 0.3
     steps = 800
 
     xs = [left + (right - left) * i / steps for i in range(steps + 1)]
-    ys = [f(x) for x in xs]
+    ys_left = [left_part(x) for x in xs]
+    ys_right = [right_part(x) for x in xs]
+
+    start_y = left_part(start_x)
 
     fig, ax = plt.subplots(figsize=(9, 5))
-    ax.plot(xs, ys, color="tab:red", linewidth=2, label="f(x) = ln(x+1)-2x+0.5")
-    ax.axhline(0.0, color="black", linewidth=1)
+    ax.plot(xs, ys_left, color="tab:blue", linewidth=2, label="y1 = ln(x+1) + 0.5")
+    ax.plot(xs, ys_right, color="tab:red", linewidth=2, label="y2 = 2x")
 
-    # Highlight interval where the positive root and initial guesses are chosen.
-    ax.axvspan(a, b, color="gold", alpha=0.25, label=f"start interval [{a}, {b}]")
+    ax.scatter([start_x], [start_y], color="black", marker="*", s=180, zorder=5,
+               label=f"graphical start ~= ({start_x:.2f}, {start_y:.2f})")
+    ax.annotate("start point",
+                xy=(start_x, start_y),
+                xytext=(22, -32),
+                textcoords="offset points",
+                arrowprops={"arrowstyle": "->", "color": "black", "linewidth": 1.1})
 
-    ax.axvline(x0_iter, color="tab:blue", linestyle="--", linewidth=1.5, label=f"x0 iter = {x0_iter:.3f}")
-    ax.axvline(x0_newton, color="tab:green", linestyle="--", linewidth=1.5, label=f"x0 Newton = {x0_newton:.3f}")
-
-    ax.scatter([x_iter], [0.0], color="tab:blue", s=40, zorder=3, label=f"iter root ~ {x_iter:.6f}")
-    ax.scatter([x_newton], [0.0], color="tab:green", s=40, zorder=3, label=f"Newton root ~ {x_newton:.6f}")
-
-    ax.set_title("Lab6: Start Region And Root Location")
+    ax.set_title("Lab6: Graphical Start Near Equation Parts Intersection")
     ax.set_xlabel("x")
-    ax.set_ylabel("f(x)")
+    ax.set_ylabel("y")
     ax.grid(alpha=0.3)
     ax.legend(loc="best")
 
-    out_path = Path("lab6") / "start_region_plot.png"
+    out_path = Path(__file__).resolve().parent / "start_region_plot.png"
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
-    plt.show()
+    plt.close(fig)
 
     print(f"Plot saved to: {out_path}")
     print()
@@ -126,18 +162,22 @@ def main():
     # x = phi(x) = (ln(x+1) + 0.5)/2
     # q = max |phi'(x)| on [a,b]
     q = max(abs(dphi(a)), abs(dphi(b)))
-    x0_iter = (a + b) / 2.0
 
-    # Newton setup:
-    # choose x0 so that f(x0)*f''(x0) > 0
-    # at x0=b this condition is satisfied for this equation
-    x0_newton = b
+    # The same start point is used for both methods.
+    # It is chosen graphically near the intersection of y1 and y2,
+    # so it is rounded instead of being the exact root.
+    exact_intersection_x = find_intersection(a, b)
+    start_x = round(exact_intersection_x, 2)
+    x0_iter = start_x
+    x0_newton = start_x
 
     x_iter, k_iter, rows_iter = simple_iteration_method(x0_iter, q, eps)
     x_newton, k_newton, rows_newton = newton_method(x0_newton, eps)
 
     print(f"eps = {eps}")
     print(f"Interval for positive root: [{a}, {b}]")
+    print(f"Exact graph intersection: x = {exact_intersection_x:.10f}")
+    print(f"Graphical start point for both methods: x0 = {start_x:.2f}")
     print(f"q = max|phi'(x)| on [{a}, {b}] = {q:.6f}")
     print()
 
@@ -162,7 +202,7 @@ def main():
     print(f"x_newton in [{a}, {b}] -> {in_newton}")
     print()
 
-    plot_initial_region(a, b, x0_iter, x0_newton, x_iter, x_newton)
+    plot_initial_region(a, b, start_x)
 
     if k_newton < k_iter:
         print("Conclusion: Newton converged faster.")

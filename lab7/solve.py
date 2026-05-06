@@ -12,6 +12,46 @@ def f2(x1, x2, a):
     return a * x2 - math.exp(x1) - x1
 
 
+def ellipse_upper_part(x1, a):
+    arg = a * a - x1 * x1
+    if arg < 0.0:
+        arg = 0.0
+    return 0.5 * math.sqrt(arg)
+
+
+def curve_part(x1, a):
+    return (math.exp(x1) + x1) / a
+
+
+def intersection_equation(x1, a):
+    return ellipse_upper_part(x1, a) - curve_part(x1, a)
+
+
+def find_positive_intersection(a, left=0.0, right=0.8, tol=1e-12, max_iter=1000):
+    f_left = intersection_equation(left, a)
+    f_right = intersection_equation(right, a)
+
+    if f_left * f_right > 0.0:
+        raise ValueError("Positive intersection is not bracketed on the given interval.")
+
+    for _ in range(max_iter):
+        mid = (left + right) / 2.0
+        f_mid = intersection_equation(mid, a)
+
+        if abs(f_mid) <= tol or (right - left) / 2.0 <= tol:
+            return mid, ellipse_upper_part(mid, a)
+
+        if f_left * f_mid <= 0.0:
+            right = mid
+            f_right = f_mid
+        else:
+            left = mid
+            f_left = f_mid
+
+    x = (left + right) / 2.0
+    return x, ellipse_upper_part(x, a)
+
+
 def phi1(x1, x2, a):
     arg = a * x2 - x1
     if arg <= 1e-12:
@@ -95,7 +135,7 @@ def print_rows(title, rows):
     print()
 
 
-def plot_localization(a, x0_iter, y0_iter, x0_newton, y0_newton, xi, yi, xn, yn):
+def plot_localization(a, start_x, start_y):
     # Graphical localization of solutions for:
     # x1^2/a^2 + 4*x2^2/a^2 - 1 = 0  (ellipse)
     # a*x2 - e^x1 - x1 = 0          (curve)
@@ -111,32 +151,27 @@ def plot_localization(a, x0_iter, y0_iter, x0_newton, y0_newton, xi, yi, xn, yn)
     for x in xs:
         v = a * a - x * x
         if v >= 0.0:
-            y = 0.5 * math.sqrt(v)
+            y = ellipse_upper_part(x, a)
             x_ellipse.append(x)
             y_ellipse_up.append(y)
             y_ellipse_dn.append(-y)
 
     # Exponential-like curve from second equation
-    y_curve = [(math.exp(x) + x) / a for x in xs]
+    y_curve = [curve_part(x, a) for x in xs]
 
     fig, ax = plt.subplots(figsize=(9, 6))
     ax.plot(x_ellipse, y_ellipse_up, color="tab:blue", linewidth=2, label="f1=0 (upper ellipse branch)")
     ax.plot(x_ellipse, y_ellipse_dn, color="tab:blue", linewidth=2, linestyle="--", label="f1=0 (lower branch)")
     ax.plot(xs, y_curve, color="tab:red", linewidth=2, label="f2=0: x2=(e^x1+x1)/a")
 
-    # Highlight region where positive solution is searched.
-    x_left, x_right = 0.0, 0.8
-    y_bottom, y_top = 0.7, 1.1
-    ax.axvspan(x_left, x_right, ymin=(y_bottom + 1.2) / 2.7, ymax=(y_top + 1.2) / 2.7, color="gold", alpha=0.20)
-    ax.plot([x_left, x_right, x_right, x_left, x_left],
-            [y_bottom, y_bottom, y_top, y_top, y_bottom],
-            color="goldenrod", linewidth=1.5, label="positive root search box")
-
-    # Initial guesses and found roots.
-    ax.scatter([x0_iter], [y0_iter], color="tab:green", s=50, zorder=4, label=f"x0 iter=({x0_iter:.2f},{y0_iter:.2f})")
-    ax.scatter([x0_newton], [y0_newton], color="tab:purple", s=50, zorder=4, label=f"x0 Newton=({x0_newton:.2f},{y0_newton:.2f})")
-    ax.scatter([xi], [yi], color="black", s=65, marker="x", zorder=5, label=f"iter root≈({xi:.4f},{yi:.4f})")
-    ax.scatter([xn], [yn], color="black", s=65, marker="o", facecolors="none", zorder=5, label=f"Newton root≈({xn:.4f},{yn:.4f})")
+    # The start point for both methods is chosen graphically near the curve intersection.
+    ax.scatter([start_x], [start_y], color="black", marker="*", s=190, zorder=6,
+               label=f"graphical start ~= ({start_x:.2f},{start_y:.2f})")
+    ax.annotate("start point",
+                xy=(start_x, start_y),
+                xytext=(24, -30),
+                textcoords="offset points",
+                arrowprops={"arrowstyle": "->", "color": "black", "linewidth": 1.1})
 
     ax.axhline(0.0, color="black", linewidth=1)
     ax.axvline(0.0, color="black", linewidth=1)
@@ -145,13 +180,13 @@ def plot_localization(a, x0_iter, y0_iter, x0_newton, y0_newton, xi, yi, xn, yn)
     ax.set_ylim(-1.2, 1.5)
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
-    ax.set_title("Lab7: Graphical Localization Of Nonlinear System Roots")
+    ax.set_title("Lab7: Graphical Start Near System Curves Intersection")
     ax.legend(loc="best", fontsize=9)
 
-    out_path = Path("lab7") / "localization_plot.png"
+    out_path = Path(__file__).resolve().parent / "localization_plot.png"
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
-    plt.show()
+    plt.close(fig)
 
     print(f"Plot saved to: {out_path}")
     print()
@@ -165,15 +200,22 @@ def main():
     a = 2.0
     eps = 1e-6
 
-    # Initial approximation chosen graphically near positive intersection.
-    x0_iter, y0_iter = 0.40, 0.95
-    x0_newton, y0_newton = 0.50, 0.90
+    # The same start point is used for both methods.
+    # It is chosen graphically near the positive intersection of the curves,
+    # so it is rounded instead of being the exact root.
+    exact_start_x, exact_start_y = find_positive_intersection(a)
+    start_x = round(exact_start_x, 2)
+    start_y = round(exact_start_y, 2)
+    x0_iter, y0_iter = start_x, start_y
+    x0_newton, y0_newton = start_x, start_y
 
     xi, yi, ki, rows_i = simple_iteration_system(x0_iter, y0_iter, a, eps)
     xn, yn, kn, rows_n = newton_system(x0_newton, y0_newton, a, eps)
 
     print(f"a = {a}")
     print(f"eps = {eps}")
+    print(f"Exact graph intersection: ({exact_start_x:.10f}, {exact_start_y:.10f})")
+    print(f"Graphical start point for both methods: x0 = ({start_x:.2f}, {start_y:.2f})")
     print()
 
     print_rows("Simple iteration method (system):", rows_i)
@@ -193,7 +235,7 @@ def main():
     print(f"max difference between roots        = {delta:.6e}")
     print()
 
-    plot_localization(a, x0_iter, y0_iter, x0_newton, y0_newton, xi, yi, xn, yn)
+    plot_localization(a, start_x, start_y)
 
     if kn < ki:
         print("Conclusion: Newton converged faster.")
