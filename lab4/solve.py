@@ -31,6 +31,16 @@ def mat_mul(a, b):
     return c
 
 
+def matrix_diff_norm_inf(a, b):
+    mx = 0.0
+    for i in range(len(a)):
+        for j in range(len(a[0])):
+            d = abs(a[i][j] - b[i][j])
+            if d > mx:
+                mx = d
+    return mx
+
+
 def offdiag_norm(a):
     n = len(a)
     s = 0.0
@@ -63,7 +73,9 @@ def jacobi_rotation_method(a, eps, max_iter=10000):
 
     k = 0
     while history[-1] > eps and k < max_iter:
+        # 1) выбираем максимальный внедиагональный элемент
         p, q = max_offdiag_index(ak)
+        # 2) строим угол поворота для обнуления a[p][q]
         phi = 0.5 * math.atan2(2.0 * ak[p][q], ak[p][p] - ak[q][q])
         c = math.cos(phi)
         s = math.sin(phi)
@@ -74,6 +86,7 @@ def jacobi_rotation_method(a, eps, max_iter=10000):
         u[p][q] = -s
         u[q][p] = s
 
+        # 3) обновляем A и накапливаем V
         ak = mat_mul(transpose(u), mat_mul(ak, u))
         v = mat_mul(v, u)
 
@@ -112,6 +125,17 @@ def vec_norm2(x):
     return math.sqrt(s)
 
 
+def max_eigenvector_norm_error(v):
+    n = len(v)
+    mx = 0.0
+    for j in range(n):
+        col = get_column(v, j)
+        err = abs(vec_norm2(col) - 1.0)
+        if err > mx:
+            mx = err
+    return mx
+
+
 def vec_dot(x, y):
     s = 0.0
     for i in range(len(x)):
@@ -142,9 +166,12 @@ def main():
     eps = 1e-5
 
     eigenvalues, eigenvectors, a_final, k, history, rotations = jacobi_rotation_method(a, eps)
+    # Симметрия A — ключевое условие корректности метода Якоби
+    sym_err = matrix_diff_norm_inf(a, transpose(a))
 
     print(f"eps = {eps}")
     print(f"iterations = {k}")
+    print(f"Symmetry check ||A-A^T||_inf = {sym_err:.6e}")
     print()
 
     print_matrix("Final near-diagonal matrix A^(k):", a_final)
@@ -180,6 +207,26 @@ def main():
             vi = get_column(eigenvectors, i)
             vj = get_column(eigenvectors, j)
             print(f"(v{i+1}, v{j+1}) = {vec_dot(vi, vj):.6e}")
+    print()
+
+    vt = transpose(eigenvectors)
+    vt_v = mat_mul(vt, eigenvectors)
+    # V должно быть ортогональным, иначе собственные векторы "разъехались"
+    ortho_err = matrix_diff_norm_inf(vt_v, identity_matrix(n))
+    vt_a_v = mat_mul(vt, mat_mul(a, eigenvectors))
+    # V^T A V должно быть диагональным, это контроль качества диагонализации
+    diag_err = offdiag_norm(vt_a_v)
+    diag_match_err = 0.0
+    for i in range(n):
+        diff = abs(vt_a_v[i][i] - eigenvalues[i])
+        if diff > diag_match_err:
+            diag_match_err = diff
+    # Нормы eigen-векторов должны быть близки к 1
+    norm_err = max_eigenvector_norm_error(eigenvectors)
+    print(f"Check ||V^T V - I||_inf = {ortho_err:.6e}")
+    print(f"Check eigenvector norms | ||v||-1 | max = {norm_err:.6e}")
+    print(f"Check offdiag(V^T A V) = {diag_err:.6e}")
+    print(f"Check diag(V^T A V) vs eigenvalues max diff = {diag_match_err:.6e}")
 
 
 if __name__ == "__main__":

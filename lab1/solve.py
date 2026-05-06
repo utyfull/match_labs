@@ -2,13 +2,14 @@ def lu_decomposition_with_pivoting(a):
     n = len(a)
     u = [row[:] for row in a]
     l = [[0.0] * n for _ in range(n)]
-    p = list(range(n))
+    p = list(range(n))  # перестановка строк (матрица P)
     swaps = 0
 
     for i in range(n):
-        l[i][i] = 1.0
+        l[i][i] = 1.0  # единичная диагональ L
 
     for k in range(n):
+        # 1) выбор главного элемента в столбце k (partial pivoting)
         pivot_row = k
         pivot_abs = abs(u[k][k])
         for i in range(k + 1, n):
@@ -18,12 +19,14 @@ def lu_decomposition_with_pivoting(a):
                 pivot_row = i
 
         if pivot_row != k:
+            # 2) перестановка строк в U, P и уже посчитанной части L
             u[k], u[pivot_row] = u[pivot_row], u[k]
             p[k], p[pivot_row] = p[pivot_row], p[k]
             for j in range(k):
                 l[k][j], l[pivot_row][j] = l[pivot_row][j], l[k][j]
             swaps += 1
 
+        # 3) зануление элементов под ведущим в столбце k
         for i in range(k + 1, n):
             factor = u[i][k] / u[k][k]
             l[i][k] = factor
@@ -42,6 +45,7 @@ def forward_substitution(l, b):
     n = len(l)
     z = [0.0] * n
     for i in range(n):
+        # прямой ход: решаем L z = b
         s = b[i]
         for j in range(i):
             s -= l[i][j] * z[j]
@@ -53,6 +57,7 @@ def backward_substitution(u, z):
     n = len(u)
     x = [0.0] * n
     for i in range(n - 1, -1, -1):
+        # обратный ход: решаем U x = z
         s = z[i]
         for j in range(i + 1, n):
             s -= u[i][j] * x[j]
@@ -61,6 +66,7 @@ def backward_substitution(u, z):
 
 
 def solve_lu(l, u, p, b):
+    # решение через LU с перестановкой: P*A = L*U
     pb = permute_vector(b, p)
     z = forward_substitution(l, pb)
     x = backward_substitution(u, z)
@@ -68,6 +74,7 @@ def solve_lu(l, u, p, b):
 
 
 def determinant_from_u(u, swaps):
+    # det(A) = (-1)^swaps * произведение диагонали U
     det_u = 1.0
     for i in range(len(u)):
         det_u *= u[i][i]
@@ -79,6 +86,7 @@ def inverse_from_lu(l, u, p):
     inv = [[0.0] * n for _ in range(n)]
 
     for col in range(n):
+        # колонка обратной: решаем A x = e_col
         e = [0.0] * n
         e[col] = 1.0
         x = solve_lu(l, u, p, e)
@@ -98,6 +106,70 @@ def mat_vec_mul(a, x):
             s += a[i][j] * x[j]
         res[i] = s
     return res
+
+
+def mat_mul(a, b):
+    n = len(a)
+    m = len(b[0])
+    p = len(b)
+    c = [[0.0] * m for _ in range(n)]
+    for i in range(n):
+        for j in range(m):
+            s = 0.0
+            for k in range(p):
+                s += a[i][k] * b[k][j]
+            c[i][j] = s
+    return c
+
+
+def identity_matrix(n):
+    m = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        m[i][i] = 1.0
+    return m
+
+
+def matrix_diff_norm_inf(a, b):
+    mx = 0.0
+    for i in range(len(a)):
+        for j in range(len(a[0])):
+            d = abs(a[i][j] - b[i][j])
+            if d > mx:
+                mx = d
+    return mx
+
+
+def matrix_norm_inf(a):
+    mx = 0.0
+    for row in a:
+        s = 0.0
+        for v in row:
+            s += abs(v)
+        if s > mx:
+            mx = s
+    return mx
+
+
+def vector_norm_inf(v):
+    mx = 0.0
+    for x in v:
+        if abs(x) > mx:
+            mx = abs(x)
+    return mx
+
+
+def residual_norm_inf(a, x, b):
+    ax = mat_vec_mul(a, x)
+    mx = 0.0
+    for i in range(len(b)):
+        d = abs(ax[i] - b[i])
+        if d > mx:
+            mx = d
+    return mx
+
+
+def permute_matrix_rows(a, p):
+    return [a[p[i]][:] for i in range(len(p))]
 
 
 def print_vector(name, v, digits=6):
@@ -129,6 +201,26 @@ def main():
     det_a = determinant_from_u(u, swaps) # определитель матрицы A
     inv_a = inverse_from_lu(l, u, p) # обратная матрица от A
     ax = mat_vec_mul(a, x) # проверка решения: A*x
+    residual = residual_norm_inf(a, x, b)
+    # Относительная невязка — стабильнее абсолютной, показывает масштаб ошибки
+    a_norm = matrix_norm_inf(a)
+    x_norm = vector_norm_inf(x)
+    b_norm = vector_norm_inf(b)
+    rel_residual = residual / (a_norm * x_norm + b_norm) if (a_norm * x_norm + b_norm) != 0.0 else 0.0
+
+    # Проверка корректности LU: P*A должно совпадать с L*U
+    pa = permute_matrix_rows(a, p)
+    lu = mat_mul(l, u)
+    lu_err = matrix_diff_norm_inf(pa, lu)
+
+    # Минимальный по модулю pivot в U — индикатор плохой обусловленности
+    min_pivot = min(abs(u[i][i]) for i in range(len(u)))
+    i_mat = identity_matrix(len(a))
+    ainv_left = mat_mul(a, inv_a)
+    ainv_right = mat_mul(inv_a, a)
+    # Проверяем корректность обратной с двух сторон
+    inv_err_left = matrix_diff_norm_inf(ainv_left, i_mat)
+    inv_err_right = matrix_diff_norm_inf(ainv_right, i_mat)
 
     print_matrix("L:", l)
     print()
@@ -144,6 +236,16 @@ def main():
     print()
     print_vector("Check A*x:", ax)
     print_vector("Right part b:", b)
+    print(f"Residual ||Ax-b||_inf = {residual:.6e}")
+    print(f"Relative residual = {rel_residual:.6e}")
+    print()
+    print(f"Inverse check ||A*A^(-1)-I||_inf = {inv_err_left:.6e}")
+    print(f"Inverse check ||A^(-1)*A-I||_inf = {inv_err_right:.6e}")
+    print()
+    print(f"Check ||P*A - L*U||_inf = {lu_err:.6e}")
+    print(f"Min |pivot| in U = {min_pivot:.6e}")
+    if min_pivot < 1e-12:
+        print("Warning: very small pivot -> matrix may be singular or ill-conditioned.")
 
 
 if __name__ == "__main__":
