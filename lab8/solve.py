@@ -12,24 +12,6 @@ def prod(values):
     return result
 
 
-def lagrange_denominators(xs):
-    denoms = []
-    for j, xj in enumerate(xs):
-        denoms.append(prod(xj - xi for i, xi in enumerate(xs) if i != j))
-    return denoms
-
-
-def lagrange_value(xs, ys, u):
-    value = 0.0
-    for j, yj in enumerate(ys):
-        term = yj
-        for i, xi in enumerate(xs):
-            if i != j:
-                term *= (u - xi) / (xs[j] - xi)
-        value += term
-    return value
-
-
 def poly_add(a, b):
     n = max(len(a), len(b))
     result = [0.0] * n
@@ -53,50 +35,116 @@ def poly_mul(a, b):
     return result
 
 
-def lagrange_polynomial_coefficients(xs, ys):
-    result = [0.0]
-    for j, yj in enumerate(ys):
-        basis = [1.0]
-        denom = 1.0
+def lagrange_interpolation_method(xs, x_star):
+    ys = [f(x) for x in xs]
+
+    def basis_denominator(j):
+        # d_j = product_{i != j}(x_j - x_i)
+        return prod(xs[j] - xi for i, xi in enumerate(xs) if i != j)
+
+    def basis_coefficients(j):
+        # l_j(x) = product_{i != j}(x - x_i) / product_{i != j}(x_j - x_i)
+        numerator = [1.0]
+        denominator = basis_denominator(j)
+
         for i, xi in enumerate(xs):
             if i != j:
-                basis = poly_mul(basis, [-xi, 1.0])
-                denom *= xs[j] - xi
-        result = poly_add(result, poly_scale(basis, yj / denom))
-    return result
+                numerator = poly_mul(numerator, [-xi, 1.0])
+
+        return poly_scale(numerator, 1.0 / denominator)
+
+    def polynomial_coefficients():
+        # L(x) = sum_j y_j * l_j(x)
+        result = [0.0]
+        for j, yj in enumerate(ys):
+            result = poly_add(result, poly_scale(basis_coefficients(j), yj))
+        return result
+
+    def value_at(coefficients, u):
+        # L(u) = a_0 + a_1*u + a_2*u^2 + ... + a_n*u^n
+        value = 0.0
+        power = 1.0
+        for coef in coefficients:
+            value += coef * power
+            power *= u
+        return value
+
+    def product_form(denoms):
+        # L3(x) = sum_j (y_j / d_j) * product_{i != j}(x - x_i)
+        terms = []
+        for j, yj in enumerate(ys):
+            coef = yj / denoms[j]
+            factors = [factor_to_string(xi) for i, xi in enumerate(xs) if i != j]
+            terms.append(signed_term(coef, factors))
+        return "L3(x) = " + join_signed_terms(terms)
+
+    denoms = [basis_denominator(j) for j in range(len(xs))]
+    coeffs = polynomial_coefficients()
+    value_at_star = value_at(coeffs, x_star)
+
+    return {
+        "ys": ys,
+        "denoms": denoms,
+        "coeffs": coeffs,
+        "product_form": product_form(denoms),
+        "power_form": polynomial_to_string(coeffs),
+        "value_at_star": value_at_star,
+    }
 
 
-def divided_differences(xs, ys):
-    n = len(xs)
-    table = [[0.0] * n for _ in range(n)]
-    for i in range(n):
-        table[i][0] = ys[i]
+def newton_interpolation_method(xs, ys, x_star):
+    def divided_differences_table():
+        # f[x_i,...,x_{i+j}] = (f[x_i,...,x_{i+j-1}] - f[x_{i+1},...,x_{i+j}]) / (x_i - x_{i+j})
+        n = len(xs)
+        table = [[0.0] * n for _ in range(n)]
+        for i in range(n):
+            table[i][0] = ys[i]
 
-    for j in range(1, n):
-        for i in range(n - j):
-            table[i][j] = (table[i][j - 1] - table[i + 1][j - 1]) / (xs[i] - xs[i + j])
+        for j in range(1, n):
+            for i in range(n - j):
+                table[i][j] = (table[i][j - 1] - table[i + 1][j - 1]) / (xs[i] - xs[i + j])
 
-    return table
+        return table
 
+    def polynomial_coefficients(table):
+        # N(x) = sum_j table[0][j] * product_{i=0}^{j-1}(x - x_i)
+        result = [0.0]
+        term = [1.0]
 
-def newton_value(xs, table, u):
-    value = 0.0
-    multiplier = 1.0
-    for j in range(len(xs)):
-        value += table[0][j] * multiplier
-        multiplier *= u - xs[j]
-    return value
+        for j in range(len(xs)):
+            result = poly_add(result, poly_scale(term, table[0][j]))
+            term = poly_mul(term, [-xs[j], 1.0])
 
+        return result
 
-def newton_polynomial_coefficients(xs, table):
-    result = [0.0]
-    term = [1.0]
+    def value_at(coefficients, u):
+        # N(u) = a_0 + a_1*u + a_2*u^2 + ... + a_n*u^n
+        value = 0.0
+        power = 1.0
+        for coef in coefficients:
+            value += coef * power
+            power *= u
+        return value
 
-    for j in range(len(xs)):
-        result = poly_add(result, poly_scale(term, table[0][j]))
-        term = poly_mul(term, [-xs[j], 1.0])
+    def product_form(table):
+        # N3(x) = sum_j table[0][j] * product_{i=0}^{j-1}(x - x_i)
+        terms = []
+        for j in range(len(xs)):
+            factors = [factor_to_string(xs[i]) for i in range(j)]
+            terms.append(signed_term(table[0][j], factors))
+        return "N3(x) = " + join_signed_terms(terms)
 
-    return result
+    diff_table = divided_differences_table()
+    coeffs = polynomial_coefficients(diff_table)
+    value_at_star = value_at(coeffs, x_star)
+
+    return {
+        "diff_table": diff_table,
+        "coeffs": coeffs,
+        "product_form": product_form(diff_table),
+        "power_form": polynomial_to_string(coeffs),
+        "value_at_star": value_at_star,
+    }
 
 
 def clean(value, eps=1e-12):
@@ -158,24 +206,6 @@ def polynomial_to_string(coeffs):
     return join_signed_terms(terms)
 
 
-def lagrange_product_form(xs, ys):
-    denoms = lagrange_denominators(xs)
-    terms = []
-    for j, yj in enumerate(ys):
-        coef = yj / denoms[j]
-        factors = [factor_to_string(xi) for i, xi in enumerate(xs) if i != j]
-        terms.append(signed_term(coef, factors))
-    return "L3(x) = " + join_signed_terms(terms)
-
-
-def newton_product_form(xs, table):
-    terms = []
-    for j in range(len(xs)):
-        factors = [factor_to_string(xs[i]) for i in range(j)]
-        terms.append(signed_term(table[0][j], factors))
-    return "N3(x) = " + join_signed_terms(terms)
-
-
 def print_table(headers, rows):
     widths = [len(header) for header in headers]
     for row in rows:
@@ -191,11 +221,13 @@ def print_table(headers, rows):
 
 
 def print_case(title, node_names, xs, x_star):
-    ys = [f(x) for x in xs]
     exact = f(x_star)
-    lagrange_at_star = lagrange_value(xs, ys, x_star)
-    diff_table = divided_differences(xs, ys)
-    newton_at_star = newton_value(xs, diff_table, x_star)
+    lagrange_result = lagrange_interpolation_method(xs, x_star)
+    newton_result = newton_interpolation_method(xs, lagrange_result["ys"], x_star)
+    ys = lagrange_result["ys"]
+    lagrange_at_star = lagrange_result["value_at_star"]
+    diff_table = newton_result["diff_table"]
+    newton_at_star = newton_result["value_at_star"]
 
     print("=" * 78)
     print(title)
@@ -209,19 +241,18 @@ def print_case(title, node_names, xs, x_star):
     print_table(["j", "x_j", "x_j numeric", "y_j=f(x_j)"], rows)
     print()
 
-    denoms = lagrange_denominators(xs)
     rows = []
     for j in range(len(xs)):
-        rows.append([str(j), fmt(denoms[j], 10), fmt(ys[j] / denoms[j], 10)])
+        denom = lagrange_result["denoms"][j]
+        rows.append([str(j), fmt(denom, 10), fmt(ys[j] / denom, 10)])
     print("Lagrange coefficients: c_j = y_j / product(x_j - x_i), i != j")
     print_table(["j", "product(x_j-x_i)", "c_j"], rows)
     print()
 
-    lagrange_coeffs = lagrange_polynomial_coefficients(xs, ys)
     print("Lagrange polynomial in product form:")
-    print(lagrange_product_form(xs, ys))
+    print(lagrange_result["product_form"])
     print("Lagrange polynomial in powers of x:")
-    print("L3(x) = " + polynomial_to_string(lagrange_coeffs))
+    print("L3(x) = " + lagrange_result["power_form"])
     print()
 
     rows = []
@@ -235,11 +266,10 @@ def print_case(title, node_names, xs, x_star):
     print_table(["i", "x_i", "Delta^0", "Delta^1", "Delta^2", "Delta^3"], rows)
     print()
 
-    newton_coeffs = newton_polynomial_coefficients(xs, diff_table)
     print("Newton polynomial in product form:")
-    print(newton_product_form(xs, diff_table))
+    print(newton_result["product_form"])
     print("Newton polynomial in powers of x:")
-    print("N3(x) = " + polynomial_to_string(newton_coeffs))
+    print("N3(x) = " + newton_result["power_form"])
     print()
 
     print("Value and interpolation error at x*:")

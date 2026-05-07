@@ -86,24 +86,21 @@ def sweep_method(lower, diag, upper, rhs):
     return result, p, q
 
 
-def natural_cubic_spline_coefficients(xs, ys):
-    validate_nodes(xs, ys)
+def calculate_a_coefficients(ys):
+    # a_i = y_{i-1}
+    return [ys[i] for i in range(len(ys) - 1)]
 
+
+def calculate_c_coefficients(xs, ys):
     h, lower, diag, upper, rhs = build_c_system(xs, ys)
     internal_c, p, q = sweep_method(lower, diag, upper, rhs)
 
-    n = len(xs) - 1
-    c = [0.0] * (n + 1)
+    # Natural spline boundary conditions:
+    # c_1 = 0, c_{n+1} = 0.
+    # Internal coefficients c_2, ..., c_n come from the tridiagonal system.
+    c = [0.0] * len(xs)
     for i, value in enumerate(internal_c, start=1):
         c[i] = value
-
-    a = []
-    b = []
-    d = []
-    for i in range(n):
-        a.append(ys[i])
-        b.append((ys[i + 1] - ys[i]) / h[i] - h[i] * (c[i + 1] + 2.0 * c[i]) / 3.0)
-        d.append((c[i + 1] - c[i]) / (3.0 * h[i]))
 
     return {
         "h": h,
@@ -113,6 +110,46 @@ def natural_cubic_spline_coefficients(xs, ys):
         "rhs": rhs,
         "p": p,
         "q": q,
+        "c": c,
+    }
+
+
+def calculate_b_coefficients(xs, ys, h, c):
+    b = []
+    for i in range(len(xs) - 1):
+        # b_i = (y_i - y_{i-1}) / h_i - h_i * (c_{i+1} + 2*c_i) / 3
+        b_i = (ys[i + 1] - ys[i]) / h[i] - h[i] * (c[i + 1] + 2.0 * c[i]) / 3.0
+        b.append(b_i)
+    return b
+
+
+def calculate_d_coefficients(xs, h, c):
+    d = []
+    for i in range(len(xs) - 1):
+        # d_i = (c_{i+1} - c_i) / (3*h_i)
+        d_i = (c[i + 1] - c[i]) / (3.0 * h[i])
+        d.append(d_i)
+    return d
+
+
+def natural_cubic_spline_coefficients(xs, ys):
+    validate_nodes(xs, ys)
+
+    a = calculate_a_coefficients(ys)
+    c_data = calculate_c_coefficients(xs, ys)
+    h = c_data["h"]
+    c = c_data["c"]
+    b = calculate_b_coefficients(xs, ys, h, c)
+    d = calculate_d_coefficients(xs, h, c)
+
+    return {
+        "h": h,
+        "lower": c_data["lower"],
+        "diag": c_data["diag"],
+        "upper": c_data["upper"],
+        "rhs": c_data["rhs"],
+        "p": c_data["p"],
+        "q": c_data["q"],
         "a": a,
         "b": b,
         "c": c[:-1],

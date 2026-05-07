@@ -1,3 +1,4 @@
+import cmath
 import math
 from pathlib import Path
 
@@ -23,23 +24,23 @@ def curve_part(x1, a):
     return (math.exp(x1) + x1) / a
 
 
-def intersection_equation(x1, a):
+def reduced_function(x1, a):
     return ellipse_upper_part(x1, a) - curve_part(x1, a)
 
 
-def find_positive_intersection(a, left=0.0, right=0.8, tol=1e-12, max_iter=1000):
-    f_left = intersection_equation(left, a)
-    f_right = intersection_equation(right, a)
+def find_positive_x_axis_intersection(a, left=0.0, right=0.8, tol=1e-12, max_iter=1000):
+    f_left = reduced_function(left, a)
+    f_right = reduced_function(right, a)
 
     if f_left * f_right > 0.0:
-        raise ValueError("Positive intersection is not bracketed on the given interval.")
+        raise ValueError("Positive x-axis intersection is not bracketed on the given interval.")
 
     for _ in range(max_iter):
         mid = (left + right) / 2.0
-        f_mid = intersection_equation(mid, a)
+        f_mid = reduced_function(mid, a)
 
         if abs(f_mid) <= tol or (right - left) / 2.0 <= tol:
-            return mid, ellipse_upper_part(mid, a)
+            return mid
 
         if f_left * f_mid <= 0.0:
             right = mid
@@ -48,8 +49,20 @@ def find_positive_intersection(a, left=0.0, right=0.8, tol=1e-12, max_iter=1000)
             left = mid
             f_left = f_mid
 
-    x = (left + right) / 2.0
-    return x, ellipse_upper_part(x, a)
+    return (left + right) / 2.0
+
+
+def choose_start_from_positive_x_axis_intersection(a, digits=2):
+    intersection_x = find_positive_x_axis_intersection(a)
+    if intersection_x <= 0.0:
+        raise ValueError("The selected x-axis intersection is not positive.")
+
+    intersection_y = ellipse_upper_part(intersection_x, a)
+
+    # For a graphical start, use a rounded point near the solution, not the exact solution.
+    start_x = round(intersection_x, digits)
+    start_y = round(ellipse_upper_part(start_x, a), digits)
+    return start_x, start_y, intersection_x, intersection_y
 
 
 def phi1(x1, x2, a):
@@ -64,6 +77,50 @@ def phi2(x1, x2, a):
     if arg < 0.0:
         arg = 0.0
     return 0.5 * math.sqrt(arg)
+
+
+def phi_jacobian(x1, x2, a):
+    denom = a * x2 - x1
+    sqrt_arg = a * a - x1 * x1
+
+    if denom <= 0.0 or sqrt_arg <= 0.0:
+        raise ValueError("Phi derivatives are undefined at the selected point.")
+
+    dphi1_dx1 = -1.0 / denom
+    dphi1_dx2 = a / denom
+    dphi2_dx1 = -x1 / (2.0 * math.sqrt(sqrt_arg))
+    dphi2_dx2 = 0.0
+
+    return dphi1_dx1, dphi1_dx2, dphi2_dx1, dphi2_dx2
+
+
+def spectral_radius_2x2(m11, m12, m21, m22):
+    trace = m11 + m22
+    det = m11 * m22 - m12 * m21
+    discriminant = trace * trace - 4.0 * det
+
+    lambda1 = (trace + cmath.sqrt(discriminant)) / 2.0
+    lambda2 = (trace - cmath.sqrt(discriminant)) / 2.0
+
+    return max(abs(lambda1), abs(lambda2))
+
+
+def check_simple_iteration_convergence(a, center_x, center_y, radius=0.05, samples=11):
+    max_rho = 0.0
+    worst_point = (center_x, center_y)
+
+    for ix in range(samples):
+        x1 = center_x - radius + 2.0 * radius * ix / (samples - 1)
+        for iy in range(samples):
+            x2 = center_y - radius + 2.0 * radius * iy / (samples - 1)
+            m11, m12, m21, m22 = phi_jacobian(x1, x2, a)
+            rho = spectral_radius_2x2(m11, m12, m21, m22)
+
+            if rho > max_rho:
+                max_rho = rho
+                worst_point = (x1, x2)
+
+    return max_rho < 1.0, max_rho, worst_point
 
 
 def jacobian(x1, x2, a):
@@ -192,6 +249,51 @@ def plot_localization(a, start_x, start_y):
     print()
 
 
+def plot_x_axis_intersection(a, intersection_x, start_x):
+    x_min = -0.2
+    x_max = 0.8
+    steps = 800
+
+    xs = [x_min + (x_max - x_min) * i / steps for i in range(steps + 1)]
+    ys = [reduced_function(x, a) for x in xs]
+    start_y = reduced_function(start_x, a)
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+    ax.plot(xs, ys, color="tab:green", linewidth=2,
+            label="g(x1) = upper ellipse branch - curve")
+    ax.axhline(0.0, color="black", linewidth=1.1, label="Ox")
+    ax.axvline(0.0, color="black", linewidth=0.9)
+
+    ax.scatter([intersection_x], [0.0], color="tab:orange", s=90, zorder=5,
+               label=f"positive Ox crossing x1 ~= {intersection_x:.4f}")
+    ax.scatter([start_x], [start_y], color="black", marker="*", s=180, zorder=6,
+               label=f"rounded start x1 = {start_x:.2f}")
+    ax.annotate("positive crossing",
+                xy=(intersection_x, 0.0),
+                xytext=(-92, 34),
+                textcoords="offset points",
+                arrowprops={"arrowstyle": "->", "color": "tab:orange", "linewidth": 1.1})
+    ax.annotate("start x1",
+                xy=(start_x, start_y),
+                xytext=(22, -34),
+                textcoords="offset points",
+                arrowprops={"arrowstyle": "->", "color": "black", "linewidth": 1.1})
+
+    ax.set_title("Lab7: Start From Positive Intersection With Ox")
+    ax.set_xlabel("x1")
+    ax.set_ylabel("g(x1)")
+    ax.grid(alpha=0.3)
+    ax.legend(loc="best")
+
+    out_path = Path(__file__).resolve().parent / "x_axis_intersection_plot.png"
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+    print(f"Plot saved to: {out_path}")
+    print()
+
+
 def main():
     # Variant 13: a = 2
     # System:
@@ -201,21 +303,25 @@ def main():
     eps = 1e-6
 
     # The same start point is used for both methods.
-    # It is chosen graphically near the positive intersection of the curves,
-    # so it is rounded instead of being the exact root.
-    exact_start_x, exact_start_y = find_positive_intersection(a)
-    start_x = round(exact_start_x, 2)
-    start_y = round(exact_start_y, 2)
+    # It is chosen graphically near the positive intersection of the reduced
+    # function g(x1) with Ox, so it is rounded instead of being the exact root.
+    start_x, start_y, exact_start_x, exact_start_y = choose_start_from_positive_x_axis_intersection(a)
     x0_iter, y0_iter = start_x, start_y
     x0_newton, y0_newton = start_x, start_y
+
+    converges, max_rho, worst_point = check_simple_iteration_convergence(a, x0_iter, y0_iter)
 
     xi, yi, ki, rows_i = simple_iteration_system(x0_iter, y0_iter, a, eps)
     xn, yn, kn, rows_n = newton_system(x0_newton, y0_newton, a, eps)
 
     print(f"a = {a}")
     print(f"eps = {eps}")
-    print(f"Exact graph intersection: ({exact_start_x:.10f}, {exact_start_y:.10f})")
-    print(f"Graphical start point for both methods: x0 = ({start_x:.2f}, {start_y:.2f})")
+    print(f"Positive intersection of g(x1) with Ox: x1 = {exact_start_x:.10f}")
+    print(f"Matching system point: ({exact_start_x:.10f}, {exact_start_y:.10f})")
+    print(f"Rounded graphical start point for both methods: x0 = ({start_x:.2f}, {start_y:.2f})")
+    print("Simple iteration convergence pre-check:")
+    print("rho(Phi'(x)) < 1 in local start neighborhood ->", converges)
+    print(f"max rho(Phi') ~= {max_rho:.6f} at ({worst_point[0]:.4f}, {worst_point[1]:.4f})")
     print()
 
     print_rows("Simple iteration method (system):", rows_i)
@@ -236,6 +342,7 @@ def main():
     print()
 
     plot_localization(a, start_x, start_y)
+    plot_x_axis_intersection(a, exact_start_x, start_x)
 
     if kn < ki:
         print("Conclusion: Newton converged faster.")
